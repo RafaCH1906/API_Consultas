@@ -91,11 +91,12 @@ async def consultar_dni(
 @router.post("/dni/manual", response_model=DNIResponse)
 async def guardar_dni_manual(
     payload: DNIManualCreate,
-    api_client: APIClient = Depends(require_roles("admin", "operator")),
+    api_client: APIClient = Depends(require_roles("superadmin")),
     db: Session = Depends(get_db)
 ) -> DNIResponse:
     """
-    Registra o actualiza manualmente un DNI en la base local.
+    Registra o actualiza manualmente un DNI en la base local (solo SuperAdmin).
+    NOTA: Para registro en POS, utilizar POST /api/v1/customers.
     """
     dni = payload.numeroDocumento.strip()
     apellido_paterno = " ".join(payload.apellidoPaterno.strip().split()).upper()

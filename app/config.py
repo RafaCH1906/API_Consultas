@@ -45,6 +45,7 @@ class Settings:
     API_PREFIX: str = os.getenv("API_PREFIX", "/api/v1")
 
     # Seguridad por API key (temporal hasta implementar usuarios/JWT multi-tenant)
+    SUPERADMIN_API_KEYS: str = os.getenv("SUPERADMIN_API_KEYS", "")
     ADMIN_API_KEYS: str = os.getenv("ADMIN_API_KEYS", "")
     OPERATOR_API_KEYS: str = os.getenv("OPERATOR_API_KEYS", "")
     READONLY_API_KEYS: str = os.getenv("READONLY_API_KEYS", "")

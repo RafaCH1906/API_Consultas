@@ -1,5 +1,6 @@
 import httpx
 from bs4 import BeautifulSoup
+import asyncio
 
 
 async def buscar_dni_eldni(dni: str) -> dict | None:
@@ -20,7 +21,7 @@ async def buscar_dni_eldni(dni: str) -> dict | None:
             response = await client.get("https://www.eldni.com/")
             response.raise_for_status()
 
-            soup = BeautifulSoup(response.text, "lxml")
+            soup = await asyncio.to_thread(BeautifulSoup, response.text, "lxml")
             token_input = soup.find("input", attrs={"name": "_token"})
             token = token_input.get("value") if token_input else None
             if not token:
@@ -32,7 +33,7 @@ async def buscar_dni_eldni(dni: str) -> dict | None:
             )
             response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, "lxml")
+        soup = await asyncio.to_thread(BeautifulSoup, response.text, "lxml")
 
         for row in soup.find_all("tr"):
             cells = row.find_all(["td", "th"])

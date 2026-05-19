@@ -12,6 +12,7 @@ from starlette.status import HTTP_429_TOO_MANY_REQUESTS
 import time
 from collections import defaultdict
 import os
+import logging
 
 from app.config import get_settings
 from app.database import init_db
@@ -55,40 +56,22 @@ async def root():
 
 
 # Middleware de logging estructurado
+logger = logging.getLogger("api_requests")
+logger.setLevel(logging.INFO)
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     from time import time
     start_time = time()
     response = await call_next(request)
     process_time = time() - start_time
-    print(f"[LOG] {request.method} {request.url.path} - {response.status_code} - {process_time:.3f}s - IP: {request.client.host}")
+    logger.info(f"{request.method} {request.url.path} - {response.status_code} - {process_time:.3f}s - IP: {request.client.host}")
     return response
 
 
-# Middleware de rate limiting simple por IP
-class SimpleRateLimiter(BaseHTTPMiddleware):
-    def __init__(self, app, max_requests: int = 60, window_seconds: int = 60):
-        super().__init__(app)
-        self.max_requests = max_requests
-        self.window_seconds = window_seconds
-        self.requests = defaultdict(list)  # {ip: [timestamps]}
-
-    async def dispatch(self, request: StarletteRequest, call_next):
-        ip = request.client.host
-        now = time.time()
-        window = self.requests[ip]
-        # Eliminar timestamps fuera de ventana
-        window = [t for t in window if now - t < self.window_seconds]
-        window.append(now)
-        self.requests[ip] = window
-        if len(window) > self.max_requests:
-            return PlainTextResponse(
-                "Rate limit exceeded. Intenta nuevamente en unos segundos.",
-                status_code=HTTP_429_TOO_MANY_REQUESTS
-            )
-        return await call_next(request)
-
-app.add_middleware(SimpleRateLimiter, max_requests=60, window_seconds=60)
+# NOTA: El Rate Limiting en memoria fue eliminado por ser incompatible con entornos SaaS multi-worker.
+# Se recomienda implementar Rate Limiting a nivel de API Gateway (NGINX/Kong) 
+# o usando Redis (ej. con la librería `slowapi`).
 
 
 # Manejadores de errores personalizados

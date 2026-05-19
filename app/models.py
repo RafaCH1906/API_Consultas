@@ -1,9 +1,9 @@
 """
 Modelos SQLAlchemy para las tablas RUC y DNI
 """
-from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text, UniqueConstraint, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
+from datetime import datetime, timezone
 
 Base = declarative_base()
 
@@ -73,7 +73,7 @@ class DNI(Base):
     apellido_materno = Column(String(200), nullable=True)
     nombres = Column(String(300), nullable=True)
     direccion = Column(String(500), nullable=True)
-    deleted_at = Column(DateTime, nullable=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Índices
     __table_args__ = (
@@ -117,8 +117,8 @@ class Tenant(Base):
     id = Column(String(64), primary_key=True, index=True)
     nombre = Column(String(200), nullable=False)
     activo = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class Customer(Base):
@@ -126,7 +126,7 @@ class Customer(Base):
     __tablename__ = "customers"
 
     id = Column(String(36), primary_key=True)
-    tenant_id = Column(String(64), nullable=False, index=True)
+    tenant_id = Column(String(64), ForeignKey("tenants.id"), nullable=False, index=True)
     document_type = Column(String(3), nullable=False)
     document_number = Column(String(11), nullable=False)
     nombre = Column(String(500), nullable=False)
@@ -137,9 +137,9 @@ class Customer(Base):
     source = Column(String(50), nullable=False, default="manual")
     created_by = Column(String(100), nullable=True)
     updated_by = Column(String(100), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-    deleted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         UniqueConstraint(
@@ -173,13 +173,13 @@ class IdentityQueryLog(Base):
     __tablename__ = "identity_query_logs"
 
     id = Column(String(36), primary_key=True)
-    tenant_id = Column(String(64), nullable=False, index=True)
+    tenant_id = Column(String(64), ForeignKey("tenants.id"), nullable=False, index=True)
     role = Column(String(50), nullable=False)
     document_type = Column(String(3), nullable=False)
     document_number = Column(String(11), nullable=False, index=True)
     result_status = Column(String(20), nullable=False)
     source = Column(String(50), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
 
 
 class AuditLog(Base):
@@ -187,12 +187,12 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(String(36), primary_key=True)
-    tenant_id = Column(String(64), nullable=False, index=True)
+    tenant_id = Column(String(64), ForeignKey("tenants.id"), nullable=False, index=True)
     role = Column(String(50), nullable=False)
     action = Column(String(100), nullable=False)
     entity = Column(String(100), nullable=False)
     entity_id = Column(String(64), nullable=True)
     old_data = Column(Text, nullable=True)
     new_data = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
 

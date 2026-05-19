@@ -31,6 +31,7 @@ def _key_matches(api_key: str, configured_keys: list[str]) -> bool:
 def _resolve_role(api_key: str) -> str | None:
     settings = get_settings()
     role_keys = {
+        "superadmin": _split_keys(settings.SUPERADMIN_API_KEYS),
         "admin": _split_keys(settings.ADMIN_API_KEYS),
         "operator": _split_keys(settings.OPERATOR_API_KEYS),
         "reader": _split_keys(settings.READONLY_API_KEYS),
@@ -68,6 +69,7 @@ async def get_current_api_client(
     # Primero, API Key
     if api_key:
         role_keys = {
+            "superadmin": _split_keys(settings.SUPERADMIN_API_KEYS),
             "admin": _split_keys(settings.ADMIN_API_KEYS),
             "operator": _split_keys(settings.OPERATOR_API_KEYS),
             "reader": _split_keys(settings.READONLY_API_KEYS),
