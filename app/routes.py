@@ -158,11 +158,41 @@ async def consultar_ruc(
     if cached:
         return RUCResponse(**cached)
 
-    # Buscar en BD
+    # Si es RUC de persona natural (empieza con 10), usar el scraper de DNI como fallback rápido
+    if numero.startswith("10"):
+        dni = numero[2:10]
+        datos_dni = await buscar_dni_eldni(dni)
+        if datos_dni:
+            nombre_completo = f"{datos_dni['apellido_paterno']} {datos_dni['apellido_materno']} {datos_dni['nombres']}".strip()
+            respuesta_ruc = {
+                "numero_documento": numero,
+                "nombre": nombre_completo,
+                "estado": "ACTIVO",
+                "condicion": "HABIDO",
+                "ubigeo": None,
+                "via_tipo": None,
+                "via_nombre": None,
+                "zona_codigo": None,
+                "zona_tipo": None,
+                "numero": None,
+                "interior": None,
+                "lote": None,
+                "departamento": None,
+                "manzana": None,
+                "kilometro": None,
+                "direccion": None,
+                "distrito": None,
+                "provincia": None
+            }
+            respuesta = RUCResponse(**respuesta_ruc)
+            cache.set(cache_key, respuesta.dict())
+            return respuesta
+
+    # Buscar en BD (Para RUCs 20 o si falló el scraper)
     registro = db.query(RUC).filter(RUC.numero_documento == numero).first()
 
     if not registro:
-        error_msg = f"El RUC {numero} no existe en el padr\u00f3n."
+        error_msg = f"El RUC {numero} no existe en el padrón."
         raise HTTPException(status_code=404, detail={"error": error_msg})
 
     # Convertir a respuesta

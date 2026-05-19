@@ -25,7 +25,7 @@ class Settings:
     # URL de conexión PostgreSQL
     @property
     def DATABASE_URL(self) -> str:
-        return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?client_encoding=utf8"
+        return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?client_encoding=utf8&sslmode=require"
 
     # Redis
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")

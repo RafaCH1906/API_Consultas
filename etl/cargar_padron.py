@@ -179,7 +179,8 @@ def procesar_padron():
             encoding='ISO-8859-1',
             dtype=str,
             chunksize=chunk_size,
-            skiprows=1  # Omitir cabecera
+            skiprows=1,  # Omitir cabecera
+            header=None  # Forzar nombres de columnas a 0, 1, 2... para evitar KeyError
         ):
             numero_lote += 1
             inicio_lote = time.time()
@@ -206,9 +207,9 @@ def procesar_padron():
                         descartadas_lote += 1
                         continue
 
-                    # Validar prefijo
+                    # Validar prefijo (OPTIMIZACIÓN SAAS: Solo guardaremos RUCs empresariales "20")
                     prefijo = numero_documento[:2]
-                    if prefijo not in ["10", "15", "17", "20"]:
+                    if prefijo != "20":
                         descartadas_lote += 1
                         continue
 
@@ -221,6 +222,12 @@ def procesar_padron():
                     # Extraer datos de la fila
                     nombre = str(row[1]).strip() if pd.notna(row[1]) else ""
                     estado = str(row[2]).strip() if pd.notna(row[2]) else None
+                    
+                    # OPTIMIZACIÓN SAAS: Solo guardar RUCs ACTIVOS para no exceder cuota de 1GB
+                    if not estado or estado.upper() != "ACTIVO":
+                        descartadas_lote += 1
+                        continue
+                    
                     condicion = str(row[3]).strip() if pd.notna(row[3]) else None
                     ubigeo = str(row[4]).strip() if pd.notna(row[4]) else None
                     via_tipo = str(row[5]).strip() if pd.notna(row[5]) else None
@@ -283,35 +290,10 @@ def procesar_padron():
                     )
                     ruc_validos.append(ruc_record)
 
-                    # Si es persona natural (prefijo 10), crear DNI
-                    if prefijo == "10":
-                        dni = extraer_dni_de_ruc(numero_documento)
-                        apellido_paterno, apellido_materno, nombres = parsear_nombre(nombre)
-
-                        dni_record = DNI(
-                            numero_documento=dni,
-                            nombre=nombre,
-                            apellido_paterno=apellido_paterno,
-                            apellido_materno=apellido_materno,
-                            nombres=nombres,
-                            estado=estado,
-                            condicion=condicion,
-                            ubigeo=ubigeo,
-                            via_tipo=via_tipo,
-                            via_nombre=via_nombre,
-                            zona_codigo=zona_codigo,
-                            zona_tipo=zona_tipo,
-                            numero=numero,
-                            interior=interior,
-                            lote=lote,
-                            departamento=departamento,
-                            manzana=manzana,
-                            kilometro=kilometro,
-                            direccion=direccion,
-                            distrito="",
-                            provincia=""
-                        )
-                        dni_validos.append(dni_record)
+                    # OPTIMIZACIÓN SAAS: Ya no generamos tabla DNI aquí para ahorrar ~600MB
+                    # La API tiene un scraper (eldni.com) y consultará en vivo lo que falte.
+                    # if prefijo == "10":
+                    #    ...
 
                 except Exception as e:
                     logger.warning(f"Error procesando fila {idx}: {e}")
