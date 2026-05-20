@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import List, Tuple
 
 import pandas as pd
-from sqlalchemy import text, Index
+from sqlalchemy import text, Index, insert
 from sqlalchemy.orm import Session
+from psycopg2.extras import execute_values
 
 # Agregar el directorio padre al path para poder importar app
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -161,7 +162,6 @@ def procesar_padron():
         return
 
     # Procesar archivo en chunks
-    db = SessionLocal()
     try:
         total_leidas = 0
         total_ruc_insertadas = 0
@@ -180,7 +180,8 @@ def procesar_padron():
             dtype=str,
             chunksize=chunk_size,
             skiprows=1,  # Omitir cabecera
-            header=None  # Forzar nombres de columnas a 0, 1, 2... para evitar KeyError
+            header=None,  # Forzar nombres de columnas a 0, 1, 2... para evitar KeyError
+            on_bad_lines='skip'  # Omitir líneas corruptas con caracteres extraños
         ):
             numero_lote += 1
             inicio_lote = time.time()
@@ -256,6 +257,13 @@ def procesar_padron():
                     manzana = None if manzana == "-" else manzana
                     kilometro = None if kilometro == "-" else kilometro
 
+                    # Truncar cadenas defensivamente para no exceder los límites varchar de Postgres
+                    nombre = nombre[:500]
+                    if via_nombre:
+                        via_nombre = via_nombre[:200]
+                    if departamento:
+                        departamento = departamento[:100]
+
                     # Calcular dirección
                     direccion_partes = []
                     if via_tipo:
@@ -266,28 +274,30 @@ def procesar_padron():
                         direccion_partes.append(f"NRO. {numero}")
 
                     direccion = " ".join(direccion_partes) if direccion_partes else None
+                    if direccion:
+                        direccion = direccion[:500]
 
-                    # Crear registro RUC
-                    ruc_record = RUC(
-                        numero_documento=numero_documento,
-                        nombre=nombre,
-                        estado=estado,
-                        condicion=condicion,
-                        ubigeo=ubigeo,
-                        via_tipo=via_tipo,
-                        via_nombre=via_nombre,
-                        zona_codigo=zona_codigo,
-                        zona_tipo=zona_tipo,
-                        numero=numero,
-                        interior=interior,
-                        lote=lote,
-                        departamento=departamento,
-                        manzana=manzana,
-                        kilometro=kilometro,
-                        direccion=direccion,
-                        distrito="",
-                        provincia=""
-                    )
+                    # Crear diccionario de datos RUC (para inserción rápida en lote)
+                    ruc_record = {
+                        "numero_documento": numero_documento,
+                        "nombre": nombre,
+                        "estado": estado,
+                        "condicion": condicion,
+                        "ubigeo": ubigeo,
+                        "via_tipo": via_tipo,
+                        "via_nombre": via_nombre,
+                        "zona_codigo": zona_codigo,
+                        "zona_tipo": zona_tipo,
+                        "numero": numero,
+                        "interior": interior,
+                        "lote": lote,
+                        "departamento": departamento,
+                        "manzana": manzana,
+                        "kilometro": kilometro,
+                        "direccion": direccion,
+                        "distrito": "",
+                        "provincia": ""
+                    }
                     ruc_validos.append(ruc_record)
 
                     # OPTIMIZACIÓN SAAS: Ya no generamos tabla DNI aquí para ahorrar ~600MB
@@ -300,38 +310,84 @@ def procesar_padron():
                     descartadas_lote += 1
                     continue
 
-            # Insertar en lote
+            # Guardar en base de datos
             if not settings.ETL_VALIDATE_ONLY:
-                try:
-                    if ruc_validos:
-                        db.bulk_save_objects(ruc_validos)
-                    if dni_validos:
-                        db.bulk_save_objects(dni_validos)
-                    db.commit()
+                if ruc_validos or dni_validos:
+                    db_session = SessionLocal()
+                    try:
+                        validos_lote = len(ruc_validos) + len(dni_validos)
+                        logger.info(f"Lote {numero_lote}: Subiendo {validos_lote} empresas (RUC 20) a Render...")
+                        
+                        inicio_subida = time.time()
+                        if ruc_validos:
+                            # Usar execute_values directo sobre psycopg2 para máxima velocidad de red
+                            raw_conn = db_session.connection().connection
+                            cursor = raw_conn.cursor()
+                            query = """
+                            INSERT INTO ruc (
+                                numero_documento, nombre, estado, condicion, ubigeo, via_tipo, via_nombre, 
+                                zona_codigo, zona_tipo, numero, interior, lote, departamento, manzana, kilometro, direccion, distrito, provincia
+                            ) VALUES %s
+                            ON CONFLICT (numero_documento) DO NOTHING
+                            """
+                            values = [
+                                (
+                                    r["numero_documento"], r["nombre"], r["estado"], r["condicion"],
+                                    r["ubigeo"], r["via_tipo"], r["via_nombre"], r["zona_codigo"],
+                                    r["zona_tipo"], r["numero"], r["interior"], r["lote"],
+                                    r["departamento"], r["manzana"], r["kilometro"], r["direccion"],
+                                    r["distrito"], r["provincia"]
+                                )
+                                for r in ruc_validos
+                            ]
+                            execute_values(cursor, query, values, page_size=2000)
+                            cursor.close()
+                            
+                        if dni_validos:
+                            raw_conn = db_session.connection().connection
+                            cursor = raw_conn.cursor()
+                            query = """
+                            INSERT INTO dni (
+                                numero_documento, nombre, apellido_paterno, apellido_materno, nombres, direccion
+                            ) VALUES %s
+                            ON CONFLICT (numero_documento) DO NOTHING
+                            """
+                            values = [
+                                (
+                                    d["numero_documento"], d["nombre"], d["apellido_paterno"], 
+                                    d["apellido_materno"], d["nombres"], d["direccion"]
+                                )
+                                for d in dni_validos
+                            ]
+                            execute_values(cursor, query, values, page_size=2000)
+                            cursor.close()
 
-                    total_ruc_insertadas += len(ruc_validos)
-                    total_dni_insertadas += len(dni_validos)
-                    total_descartadas += descartadas_lote
-
-                except Exception as e:
-                    logger.error(f"Error insertando lote {numero_lote}: {e}")
-                    db.rollback()
-                    continue
+                        db_session.commit()
+                        duracion_subida = time.time() - inicio_subida
+                        
+                        total_ruc_insertadas += len(ruc_validos)
+                        total_dni_insertadas += len(dni_validos)
+                        
+                        logger.info(f"Lote {numero_lote}: ¡Guardado exitoso! (tiempo subida: {duracion_subida:.2f}s)")
+                    except Exception as e:
+                        logger.error(f"Error insertando lote {numero_lote}: {e}")
+                        db_session.rollback()
+                    finally:
+                        db_session.close()
+                else:
+                    # Si no hay datos, reportamos progreso en intervalos normales de logs
+                    duracion_lote = time.time() - inicio_lote
+                    if numero_lote % settings.ETL_LOG_INTERVAL == 0:
+                        logger.info(
+                            f"Lote {numero_lote}: leídas={filas_chunk}, "
+                            f"válidas=0, "
+                            f"descartadas={descartadas_lote}, "
+                            f"tiempo={duracion_lote:.2f}s"
+                        )
             else:
                 total_ruc_insertadas += len(ruc_validos)
                 total_dni_insertadas += len(dni_validos)
                 total_descartadas += descartadas_lote
-
-            # Reporte de progreso
-            duracion_lote = time.time() - inicio_lote
-            if numero_lote % settings.ETL_LOG_INTERVAL == 0:
-                logger.info(
-                    f"Lote {numero_lote}: "
-                    f"leídas={filas_chunk}, "
-                    f"válidas={len(ruc_validos)}, "
-                    f"descartadas={descartadas_lote}, "
-                    f"tiempo={duracion_lote:.2f}s"
-                )
 
         # Crear índices
         logger.info("Creando índices...")
@@ -378,7 +434,7 @@ def procesar_padron():
         logger.error(f"Error procesando padrón: {e}")
         raise
     finally:
-        db.close()
+        pass
 
 
 if __name__ == "__main__":
